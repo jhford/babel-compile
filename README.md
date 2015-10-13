@@ -28,7 +28,7 @@ following to your package.json:
 ```json
 ...
 "scripts": {
-  "compile": "tc-babel -c taskcluster-configs/babel src:lib test:.test",
+  "compile": "babel-compile -c taskcluster-lib-rules/babel src:lib test:.test",
   "pretest": "npm run compile",
   "prepublish": "npm run compile"
 }

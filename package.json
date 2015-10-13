@@ -1,17 +1,17 @@
 {
-  "name": "taskcluster-babel",
+  "name": "babel-compile",
   "version": "0.0.1",
-  "description": "babel executable for taskcluster projects",
-  "main": "lib/tc-babel.js",
+  "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
+  "main": "lib/compile.js",
   "scripts": {
     "test": "mocha test/*_test.js"
   },
   "bin": {
-    "tc-babel": "./bin/cli.js"
+    "babel-compile": "./lib/cli.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/taskcluster/taskcluster-babel.git"
+    "url": "git+https://github.com/jhford/babel-compile.git"
   },
   "keywords": [
     "taskcluster",
@@ -19,14 +19,12 @@
   ],
   "author": "John Ford <jhford.mozilla@com>",
   "license": "MPL-2.0",
-  "bugs": {
-    "url": "https://github.com/taskcluster/taskcluster-babel/issues"
-  },
-  "homepage": "https://github.com/taskcluster/taskcluster-babel#readme",
+  "homepage": "https://github.com/jhford/babel-compile",
   "dependencies": {
     "babel-core": "^5.8.25",
     "commander": "^2.8.1",
     "fs-walk": "0.0.1",
-    "mkdirp": "^0.5.1"
+    "mkdirp": "^0.5.1",
+    "rimraf": "^2.4.3"
   }
 }
