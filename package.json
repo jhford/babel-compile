@@ -1,0 +1,32 @@
+{
+  "name": "taskcluster-babel",
+  "version": "0.0.1",
+  "description": "babel executable for taskcluster projects",
+  "main": "lib/tc-babel.js",
+  "scripts": {
+    "test": "mocha test/*_test.js"
+  },
+  "bin": {
+    "tc-babel": "./bin/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taskcluster/taskcluster-babel.git"
+  },
+  "keywords": [
+    "taskcluster",
+    "babel"
+  ],
+  "author": "John Ford <jhford.mozilla@com>",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": "https://github.com/taskcluster/taskcluster-babel/issues"
+  },
+  "homepage": "https://github.com/taskcluster/taskcluster-babel#readme",
+  "dependencies": {
+    "babel-core": "^5.8.25",
+    "commander": "^2.8.1",
+    "fs-walk": "0.0.1",
+    "mkdirp": "^0.5.1"
+  }
+}
