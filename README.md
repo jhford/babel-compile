@@ -1,4 +1,4 @@
-# Taskcluster-babel
+# babel-compile
 While putting static babel-compiling in place, we've discovered that the babel
 cli client is not perfectly suited to our usage.  We can only compile by directory
 one at a time, we have to wrap our babel invocations in an `rm -rf out/` to make
@@ -15,7 +15,7 @@ The result is a babel cli client which does things the way we want:
 ## Getting started
 First, you're going to want to install this package and the taskcluster global configs
 ```
-npm install taskcluster-babel --save-dev
+npm install babel-compile --save-dev
 npm install taskcluster-configs --save-dev
 ```
 Next, you're going to want to add it to your `package.json` file's scripts
@@ -56,11 +56,10 @@ to include the compiled copy for the program.
 As well, your package.json file's test script should use, as an example,
 `.test/*_test.js` instead of `test/*_test.js`
 
-## Source Maps (awful stack traces)
+## Source Maps (why do I have awful stack traces)
 If you're using Node 0.12, you're likely noticing that your stack traces are terrible.
 This is because the Node 0.12 environment doesn't support source maps natively.
-If you'd like to have useful stacktraces, you can
-
+If you'd like to have useful stacktraces, you can do this:
 
 ```
 npm install source-map-support
