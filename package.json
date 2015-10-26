@@ -4,7 +4,7 @@
   "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
   "main": "lib/compile.js",
   "scripts": {
-    "test": "mocha test/*_test.js"
+    "test": "node ./lib/cli.js sample-in:sample-out"
   },
   "bin": {
     "babel-compile": "./lib/cli.js"
