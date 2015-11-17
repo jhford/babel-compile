@@ -1,6 +1,6 @@
 {
   "name": "babel-compile",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
   "main": "lib/compile.js",
   "scripts": {
@@ -28,6 +28,6 @@
     "rimraf": "^2.4.3"
   },
   "peerDependencies": {
-    "babel-core": "^5.8.25"
+    "babel-core": "^6.1.21"
   }
 }
