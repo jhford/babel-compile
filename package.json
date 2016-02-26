@@ -1,6 +1,6 @@
 {
   "name": "babel-compile",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
   "main": "lib/compile.js",
   "scripts": {
