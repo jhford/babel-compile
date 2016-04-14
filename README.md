@@ -13,10 +13,9 @@ The result is a babel cli client which does things the way we want:
 * Allows us to load configuration from an NPM module instead of copying around a .babelrc
 
 ## Getting started
-First, you're going to want to install this package and the taskcluster global configs
+First, you're going to want to install this package
 ```
 npm install babel-compile --save-dev
-npm install taskcluster-configs --save-dev
 ```
 Next, you're going to want to add it to your `package.json` file's scripts
 section.
