@@ -16,7 +16,7 @@ The result is a babel cli client which does things the way we want:
 First, you're going to want to install this package and the taskcluster global configs
 ```
 npm install babel-compile --save-dev
-npm install taskcluster-configs --save-dev
+npm install babel-preset-es2015 --save-dev
 ```
 Next, you're going to want to add it to your `package.json` file's scripts
 section.
@@ -28,7 +28,7 @@ following to your package.json:
 ```json
 ...
 "scripts": {
-  "compile": "babel-compile -c taskcluster-lib-rules/babel src:lib test:.test",
+  "compile": "babel-compile -p es2015 src:lib test:.test",
   "pretest": "npm run compile",
   "prepublish": "npm run compile"
 }
