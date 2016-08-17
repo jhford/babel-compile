@@ -1,12 +1,12 @@
 "use strict";
-var babel = require('babel-core');
-var fs = require('fs');
-var path = require('path');
-var assert = require('assert');
-var _ = require('lodash');
-var walk = require('fs-walk');
-var mkdirP = require('mkdirp');
-var rmrf = require('rimraf').sync;
+let babel = require('babel-core');
+let fs = require('mz/fs');
+let path = require('path');
+let assert = require('assert');
+let _ = require('lodash');
+let walk = require('fs-walk');
+let mkdirP = require('mkdirp');
+let rmrf = require('rimraf').sync;
 
 /**
  * This is a library for compiling es6 to node-0.12+ compatible JS.  We wrote
@@ -19,89 +19,183 @@ var rmrf = require('rimraf').sync;
 // Prior art, a grunt task for doing babel transpiling: 
 //   https://github.com/babel/grunt-babel/blob/master/tasks/babel.js
 
-var supportedFiles = ['.js', '.jsx'];
+const supportedFiles = ['.js', '.jsx'];
 
-function transformDirMapSync(dirMap, options) {
-  assert(typeof dirMap === 'object', 'dirMap must be object');
-  assert(typeof options === 'object', 'options must be object');
-
-  // We want to have a quick option to empty the output directories if they
-  // contain anything.  Because we're doing all compiliations in this one
-  // script, it should be safe for us to delete everything already existing in
-  // the output dirs
-  _.each(dirMap, function(dst, src) {
-    assert(typeof src === 'string', 'source directory must be string');
-    assert(typeof dst === 'string', 'destination directory must be string');
-    assert(fs.existsSync(src), 'source directory must exist');
-    if (fs.existsSync(dst)) {
-      console.log('Deleting existing destination: ' + dst);
-      rmrf(dst);
-      fs.mkdirSync(dst);
-    } else {
-      fs.mkdirSync(dst);
+/**
+ * Run all the operations that we wish to do in babel-compile. The dirMap
+ * parameter is a a list of objects in the form {src: inDir, dst: outDir}. The
+ * babelopts parameter is an object of desired babel-core options.  Keep in
+ * mind that we will overwrite some of these to do source maps
+ */
+async function run(dirMap, babelopts) {
+  // Get rid of anything that's there.  I'd rather waste time recreating things
+  // than deal with weird files being there and affecting the output.  There's
+  // room for improvement by leaving things in place, finding the operations
+  // that need to be done and only overwriting the files which have changed,
+  // but it'd be critical to remember to delete the files which are no longer
+  // in the source directory.  Basically, babel-compile owns getting things
+  // right.
+  await Promise.all(dirMap.map(async pair => {
+    if (await fs.exists(pair.dst)) {
+      await fs.unlink(pair.dst);
     }
-    transformDirectorySync(src, dst, options);
-  });
+  }));
+
+  let files = classifyDirMap(dirMap);
+
+  // Remember that we should create the directories before we try to write
+  // files out to them.  This allows us to skip any checks for directory
+  // existance in the copy and compile operations
+  await createDirectories(files.dir);
+
+  // Execute our copy and compile operations!
+  await Promise.all([
+    files.com.map(x => compile(x.src, x.dst, babelopts)),
+    files.cop.map(x => copy(x.src, x.dst)),
+  ]);
 }
 
-function transformDirectorySync(inDir, outDir, options) {
-  assert(typeof inDir === 'string', 'inDir must be a string');
-  assert(typeof outDir === 'string', 'outDir must be a string');
-  assert(typeof options === 'object', 'options must be an object');
-  fs.readdirSync(inDir).forEach(function(inDirMember) {
-    var fullInPath = path.join(inDir, inDirMember);
-    var fullOutPath = path.join(outDir, inDirMember);
-    if (fs.existsSync(fullOutPath)) {
-      console.log('Deleting existing destination: ' + fullOutPath);
-      rmrf(fullOutPath);
-    }
-    mkdirP.sync(path.dirname(fullOutPath));
-    if (fs.lstatSync(fullInPath).isDirectory()) {
-      // We have a dir, let's recurse
-      transformDirectorySync(fullInPath, fullOutPath, options);
+/**
+ * Classify all files in the directory map into the directories which must be
+ * created, the files which must be copied/linked and the files which must be
+ * compiled
+ *
+ * dirMap is a list of objects {src: inDir, dst: outDir}
+ */
+async function classifyDirMap(dirMap) {
+  assert(typeof dirMap === 'object');
+
+  let res = {
+    dir: [],
+    cop: [],
+    com: [],
+  };
+
+  await Promise.all(dirMap.map(async pair => {
+    let srcExists = await fs.exists(pair.src);
+    assert(srcExists, `missing source directory ${pair.src}`);
+    let result = await classifyDirectory(pair.src, pair.dst);
+    Array.prototype.push.apply(res.dir, result.dir);
+    Array.prototype.push.apply(res.com, result.com);
+    Array.prototype.push.apply(res.cop, result.cop);
+    res.dir.push(pair.dst);
+  }));
+
+  return res;
+}
+
+async function classifyDirectory(inDir, outDir) {
+  assert(typeof inDir === 'string');
+  assert(typeof outDir === 'string');
+
+  let res = {
+    dir: [],
+    cop: [],
+    com: [],
+  };
+
+  let dirContent = await fs.readdir(inDir);
+
+  await Promise.all(dirContent.map(async relSrc => {
+    let pair = {
+      src: path.join(inDir, relSrc),
+      dst: path.join(outDir, relSrc),
+    };
+
+    let x;
+    if ((await fs.lstat(inDirMember)).isDirectory()) {
+      x = res.dir;
+    } else if (supportedFiles.indexOf(path.parse(fullInPath).ext) !== -1) {
+      x = res.com;
     } else {
-      // We only want to transform files if they are a supported file extension
-      // and not in the list of files to ignore
-      if (supportedFiles.indexOf(path.parse(fullInPath).ext) !== -1) {
-        transformFileSync(fullInPath, fullOutPath, options);
-      } else {
-        console.log('Copying non-js file ' + fullInPath + ' to ' + fullOutPath);
-        fs.writeFileSync(fullOutPath, fs.readFileSync(fullInPath));
+      x = res.cop;
+    }
+    x.push(pair);
+  }));
+
+  return res;
+}
+
+/**
+ * Create all the directories in a list
+ */
+async function createDirectories(directories) {
+  assert(directories);
+  assert(Array.isArray(directories));
+  await Promise.all(directories.map(async dir => {
+    assert(typeof dir === 'string');
+    console.log(`Creating directory +${dir}`);
+    await mkdirP(dir);
+  }));
+}
+
+/**
+ * Copy or link a file.
+ *
+ * We try to do a hardlink, then symlink then fallback to copying
+ */
+async function copy(src, dst) {
+  assert(typeof src === 'string');
+  assert(typeof dst === 'string');
+
+  try {
+    await fs.link(src, dst);
+    console.log(`Hardlinked file ${src} --> ${dst}`);
+  } catch (hlerr) {
+    try {
+      await fs.symlink(src, dst);
+      console.log(`Symlinked file ${src} --> ${dst}`);
+    } catch (symerr) {
+      fs.createReadStream(src).pipe(fs.createWriteStream(dst));
+      console.log(`Copied file ${src} --> ${dst}`);
+    }
+  }
+}
+
+/**
+ * Wrap babel.transformFile with a promise.  Doing this here in hopes
+ * that the upstream babel-core gets promisified and we can just use their
+ * promise interface
+ */
+let BABELtransformFile = async function(filename, opts = {}) {
+  return new Promise((res, rej) => {
+    babel.transformFile(filename, opts, (err, result) => {
+      if (err) {
+        return rej(err);
       }
-    }
+      return res(result);
+    });
   });
 }
 
-function transformFileSync(inFile, outCodeFile, options) {
-  assert(typeof inFile === 'string', 'inFile must be string');
-  assert(fs.existsSync(inFile), 'inFile must exist');
-  assert(typeof outCodeFile === 'string', 'outCodeFile must be string');
-  assert(typeof options === 'object', 'options must be an object');
+/**
+ * Compile a file
+ */
+async function compile(src, dst, opts) {
+  // For the time being, let's just do the copy
+  assert(await fs.exists(src));  
 
-  var sourceRelative = path.relative(path.dirname(outCodeFile), inFile);
   // TODO: Verify the order of options and the obj literal.  obj
   // literal must win!
-  var fileOpts = _.defaults({}, options || {}, {
+  let _opts = _.defaults({}, opts || {}, {
     sourceMaps: true,
-    sourceFileName: path.basename(outCodeFile),
-    sourceMapTarget: path.basename(outCodeFile),
-    sourceRoot: path.relative(path.dirname(outCodeFile), path.dirname(inFile)),
+    sourceFileName: path.basename(dst),
+    sourceMapTarget: path.basename(dst),
+    sourceRoot: path.relative(path.dirname(dst), path.dirname(src)),
   });
-  console.log('Compiling file ' + inFile + ' --> ' + outCodeFile);
-  var out = babel.transformFileSync(inFile, fileOpts);
 
-  if (fs.existsSync(outCodeFile)) {
-    rmrf(outCodeFile);
-  }
-  mkdirP.sync(path.dirname(outCodeFile));
-  var codeOut = out.code + '\n//# sourceMappingURL=' + path.basename(outCodeFile) + '.map\n';
-  var mapOut = out.map;
-  fs.writeFileSync(outCodeFile, codeOut);
-  fs.writeFileSync(outCodeFile + '.map', JSON.stringify(mapOut, null, 2) + '\n');
+
+  console.log(`Compiling file ${src} --> ${dst}`);
+  let start = Date.now();
+  let out = await BABELtransformFile(src, _opts);
+  console.log(`Finished compiling file ${src} --> ${dst} ${Date.now() - start}ms`);
+
+  let code = out.code + '\n//# sourceMappingURL=' + path.basename(dst) + '.map\n';
+
+  await Promise.all([
+    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}.map`),
+    fs.writeFile(dst + '.map', JSON.stringify(out.map, null, 2) + '\n'),
+  ]);
 }
 
-module.exports = {
-  transformFileSync: transformFileSync,
-  transformDirectorySync: transformDirectorySync,
-  transformDirMapSync: transformDirMapSync,
-};
+module.exports = {run, copy, compile, createDirectories};

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-var babel = require('./compile');
-var program = require('commander');
-var pkgjson = require('../package.json');
-var path = require('path');
-var _ = require('lodash');
+let compile = require('./compile');
+let program = require('commander');
+let pkgjson = require('../package.json');
+let path = require('path');
+let _ = require('lodash');
+let fs = require('mz/fs');
 
 
 /**
@@ -14,7 +15,7 @@ var _ = require('lodash');
  * to *this* file itself
  */
 
-var config = {
+let config = {
   presets: [],
   babelrc: false,
 };
@@ -31,19 +32,19 @@ program
       'Specifies which babel-preset to use', addConfig, [])
   .parse(process.argv);
 
-var mapping = {};
-var options = {};
-
-program.args.forEach(function(arg) {
-  var x = arg.split(':');
+let mapping = program.args.map(arg => {
+  let x = arg.split(':');
   if (x.length !== 2) {
     console.error('Arguments must be in the form src:dst, not ' + arg);
     process.exit(1);
   }
-  mapping[x[0]] = x[1];
+  return {src: x[0], dst: x[1]};
 });
 
 console.log('Running babel compilation with config:\n' +
             JSON.stringify(config, null, 2));
+// Consider writing the config to .babelrc implicitly
+// so that babel-node implicitly uses the same config
+// as babel-compile
 
-babel.transformDirMapSync(mapping, config);
+compile.run(mapping, config);

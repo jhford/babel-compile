@@ -18,7 +18,7 @@ for jsFile in $(find src -name "*.js") ; do
   outFile="$bootstrapDir/$jsFile"
   mkdir -p $outDir
   echo bootstrap compiling $jsFile '=>' $outFile
-  babel $jsFile -o $outFile
+  babel --presets taskcluster $jsFile -o $outFile
 done
 
 # We need a copy of our dependencies for running
