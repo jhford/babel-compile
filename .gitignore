@@ -1,2 +1,6 @@
 sample-out/
 node_modules/
+lib/
+mocha-test/
+.babelrc
+*.*.sw?

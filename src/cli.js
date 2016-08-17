@@ -53,6 +53,19 @@ compile.run(mapping, config).then(() => {
   console.log('Success!');
   process.exit(0);
 }, err => {
+  if (err.code === 'FoundDuplicates') {
+    console.error([
+      'Found duplicate files.  If one of these is a source ',
+      'map file (e.g. ends in .map), you likely have a stray ',
+      'source map file in your input directory that would ',
+      'eroneously overwritten by by the babel-compile source ',
+      'map generation step.  You will need to rename either ',
+      'the source map, or the javascript file which would have ',
+      'a source map with a conflicting name',
+    ].join('\n'));
+    console.error('Here are the files which confict:\n  * ' + err.dupes.join('\n  * '));
+    process.exit(1);
+  }
   console.error('Error!');
   console.error(err.stack || err);
   process.exit(1);

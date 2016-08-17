@@ -35,7 +35,7 @@ ln -s $PWD/package.json $bootstrapDir/package.json
 
 # Compile babel-compile for real
 echo Compiling final version
-node $bootstrapDir/src/cli.js -p taskcluster src:lib
+node $bootstrapDir/src/cli.js -p taskcluster src:lib mocha-test-src:mocha-test
 #rm -rf $bootstrapDir
 echo Finished bootstrapping babel-compile
 echo

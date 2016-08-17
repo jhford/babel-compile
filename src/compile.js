@@ -10,23 +10,22 @@ let rmrf = require('rimraf');
 let debug = require('debug')('babel-compile:compile');
 
 /**
- * This is a library for compiling es6 to node-0.12+ compatible JS.  We wrote
- * this because there are a couple of bugs in the CLI wrapper for babel.  We
- * also wanted to implement a system for sharing babel rules between components
- * through a module.  We do not use es6 to write this script to keep things
- * simple by avoiding any weird bootstrapping issues with Babel
+ * This is a library which contains operations useful to tools which compile
+ * Javascript to Javascript using the Babel compiler.
  */
 
-// Prior art, a grunt task for doing babel transpiling: 
-//   https://github.com/babel/grunt-babel/blob/master/tasks/babel.js
-
+// List of file extensions which we'll try to use Babel to compile
 const supportedFiles = ['.js', '.jsx'];
+const sourceMapSuffix = '.map';
 
 /**
- * Run all the operations that we wish to do in babel-compile. The dirMap
- * parameter is a a list of objects in the form {src: inDir, dst: outDir}. The
- * babelopts parameter is an object of desired babel-core options.  Keep in
- * mind that we will overwrite some of these to do source maps
+ * Run everything which we need in order to do the compilation.  `dirMap` is a
+ * list of objects in the shape `{src: ..., dst: ...}`.  The values
+ * in `dirMap` items should be paths relative to the current directory.
+ * `babelopts` is the configuration object that will be given to
+ * `babel-core.transformFile` in order to produce the desired output.  Do note,
+ * options relating to source map generation are overwritten by this library
+ * before being passed into babel-core.
  */
 async function run(dirMap, babelopts) {
   // Get rid of anything that's there.  I'd rather waste time recreating things
@@ -57,19 +56,51 @@ async function run(dirMap, babelopts) {
   // existance in the copy and compile operations
   await createDirectories(files.dir);
 
+  debug('directory creation finished');
+  // TODO: Check for dupes in the list of copy and compile files
+
+  let allFiles = _.flatten([
+    files.com.map(x => x.dst),
+    files.cop.map(x => x.dst),
+    files.com.map(x => x.dst + sourceMapSuffix),
+  ]);
+
+  let allFilesUniq = _.uniq(allFiles);
+  if (allFiles.length !== _.uniq(allFiles).length) {
+    // We need to sort so we can do the comparisons
+    allFiles.sort();
+    let dupes = [];
+    for (let i = 1 ; i < allFiles.length ; i++) {
+      if (allFiles[i] === allFiles[i - 1]) {
+        dupes.push(allFiles[i]);
+      }
+    }
+    let err = new Error('There are duplicate files, or sourcemaps would overwrite another file');
+    err.code = 'FoundDuplicates';
+    err.dupes = dupes;
+    debug('Found duplicate files %j', dupes); 
+    throw err;
+  }
+
   // Execute our copy and compile operations!
   await Promise.all([
-    files.com.map(x => compile(x.src, x.dst, babelopts)),
-    files.cop.map(x => copy(x.src, x.dst)),
+    Promise.all(files.com.map(x => compile(x.src, x.dst, babelopts))),
+    Promise.all(files.cop.map(x => copy(x.src, x.dst))),
   ]);
+  debug('copy and compile operations complete');
 }
 
 /**
- * Classify all files in the directory map into the directories which must be
- * created, the files which must be copied/linked and the files which must be
- * compiled
+ * Classify things in the given `dirMap` into the directories to create, files
+ * to copy and files to compile.  Dir map is a list of input and output
+ * pairings.
  *
- * dirMap is a list of objects {src: inDir, dst: outDir}
+ * `dirMap` is a list of objects {src: ..., dst: ...}
+ * 
+ * Returns a list like:
+ * [
+ *    {dir: [], cop: {src: ..., dst:...}, com: {src: ..., dst: ...}}
+ * ]
  */
 async function classifyDirMap(dirMap) {
   assert(typeof dirMap === 'object');
@@ -93,6 +124,15 @@ async function classifyDirMap(dirMap) {
   return res;
 }
 
+/**
+ * Classify the files from a single source `src` location into
+ * a single destination `dst` location.
+ *
+ * Returns a list like:
+ * [
+ *    {dir: [], cop: {src: ..., dst:...}, com: {src: ..., dst: ...}}
+ * ]
+ */
 async function classifyDirectory(src, dst) {
   assert(typeof src === 'string');
   assert(typeof dst === 'string');
@@ -128,7 +168,7 @@ async function classifyDirectory(src, dst) {
 }
 
 /**
- * Create all the directories in a list
+ * Create all directories in the list `directories`
  */
 async function createDirectories(directories) {
   assert(directories);
@@ -149,25 +189,70 @@ async function createDirectories(directories) {
 }
 
 /**
- * Copy or link a file.
+ * Copy or link a file.  This function first tries to create a hardlink.  If
+ * hardlinking fails for any reason, we try to create a symlink.  If both
+ * symbolic and hard linking fail, we try to copy the file.
  *
- * We try to do a hardlink, then symlink then fallback to copying
+ * Note: I never tested this on windows because I sort of just don't care about
+ * windows.  I passed in the symlink type of 'file' hoping it's the right
+ * thing.  If you know windows feel free to fix!
+ *
+ * Note: I figured it was faster to just try various linking options instead of
+ * trying to inpect what they are before attempting.  My suspicion is that the
+ * amount of time spent inspecting before attemping on platforms which I care
+ * about is longer than the time that it would take to just try two simple
+ * syscalls.  A better control flow with options to skip a specific option
+ * could be cool.  Maybe do things like skip all types of linking on Windows
+ * because I don't really understand that behaviour
  */
 async function copy(src, dst) {
   assert(typeof src === 'string');
   assert(typeof dst === 'string');
-  debug('copying %s -> %s', src, dst);
+  debug('copying or linking %s -> %s', src, dst);
 
   try {
+    debug('hardlinking %s -> %s', src, dst);
     await fs.link(src, dst);
     console.log(`Hardlinked file ${src} --> ${dst}`);
   } catch (hlerr) {
+    debug('hardlink failed, trying symlink %s', hlerr.stack || hlerr);
     try {
-      await fs.symlink(src, dst);
+      debug('symlinking %s -> %s', src, dst);
+      await fs.symlink(path.relative(path.dirname(dst), src), dst, 'file');
       console.log(`Symlinked file ${src} --> ${dst}`);
     } catch (symerr) {
-      fs.createReadStream(src).pipe(fs.createWriteStream(dst));
-      console.log(`Copied file ${src} --> ${dst}`);
+      debug('hardlink, symlink failed, copying %s', symerr.stack || symerr);
+      return new Promise((res, rej) => {
+        let rs = fs.createReadStream(src);
+        let ws = fs.createWriteStream(dst);
+        let readErr;
+        let writeErr;
+
+        rs.on('end', () => {
+          if (readErr) {
+            debug('read error');
+            rej(readErr);
+          }
+          
+          if (writeErr) {
+            debug('write error');
+            rej(writeErr);
+          }
+          console.log(`Copied file ${src} --> ${dst}`);
+          res();
+        });
+
+        rs.once('error', err => {
+          readErr = err;
+        });
+
+        ws.once('error', err => {
+          writeErr = err;
+        });
+
+        rs.pipe(ws);
+
+      });
     }
   }
 }
@@ -175,7 +260,8 @@ async function copy(src, dst) {
 /**
  * Wrap babel.transformFile with a promise.  Doing this here in hopes
  * that the upstream babel-core gets promisified and we can just use their
- * promise interface
+ * promise interface.  I didn't really feel like depending on a full promise
+ * library to use a single denodify call for such a simple function.
  */
 let BABELtransformFile = async function(filename, opts = {}) {
   return new Promise((res, rej) => {
@@ -189,7 +275,11 @@ let BABELtransformFile = async function(filename, opts = {}) {
 }
 
 /**
- * Compile a file
+ * Compile a file located at `src` and write it out to `dst`.  A second file
+ * called `dst + '.map'` will also be written out to.  The options `opts` are
+ * what will be passed through to babel-core.  Note that options related to
+ * source maps are overwritten in this function in order to ensure that source
+ * maps are generated correctly.
  */
 async function compile(src, dst, opts) {
   // For the time being, let's just do the copy
@@ -211,10 +301,8 @@ async function compile(src, dst, opts) {
   let out = await BABELtransformFile(src, _opts);
   console.log(`Finished compiling file ${src} --> ${dst} ${Date.now() - start}ms`);
 
-  let code = out.code + '\n//# sourceMappingURL=' + path.basename(dst) + '.map\n';
-
   await Promise.all([
-    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}.map`),
+    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}.${sourceMapSuffix}`),
     fs.writeFile(dst + '.map', JSON.stringify(out.map, null, 2) + '\n'),
   ]);
 }

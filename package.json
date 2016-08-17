@@ -34,10 +34,12 @@
     "mkdirp": "^0.5.1",
     "mz": "^2.4.0",
     "rimraf": "^2.4.3",
+    "sinon": "^1.17.5",
     "source-map-support": "^0.4.2"
   },
   "devDependencies": {
     "babel-cli": "^6.11.4",
-    "babel-preset-taskcluster": "^3.0.0"
+    "babel-preset-taskcluster": "^3.0.0",
+    "mocha": "^3.0.2"
   }
 }
