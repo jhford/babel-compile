@@ -4,8 +4,11 @@
   "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
   "main": "lib/compile.js",
   "scripts": {
-    "installTestPreset": "test ! -d ./node_modules/babel-preset-es2015 && npm install babel-preset-es2015 || true",
-    "test": "npm run installTestPreset && node ./lib/cli.js -p es2015 sample-in:sample-out"
+    "compile": "./compile.sh",
+    "test": "node ./lib/cli.js -p taskcluster sample-in:sample-out && rm -rf sample-out",
+    "pretest": "npm run compile",
+    "prepublish": "npm run compile",
+    "preinstall": "npm run compile"
   },
   "bin": {
     "babel-compile": "./lib/cli.js"
@@ -23,10 +26,15 @@
   "homepage": "https://github.com/jhford/babel-compile",
   "dependencies": {
     "babel-core": "^6.7.0",
+    "babel-runtime": "^6.11.6",
     "commander": "^2.8.1",
     "fs-walk": "0.0.1",
     "lodash": "^4.11.1",
     "mkdirp": "^0.5.1",
     "rimraf": "^2.4.3"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.11.4",
+    "babel-preset-taskcluster": "^3.0.0"
   }
 }
