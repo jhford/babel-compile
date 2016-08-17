@@ -34,5 +34,10 @@ fi
 ln -s $PWD/package.json $bootstrapDir/package.json
 
 # Compile babel-compile for real
+echo Compiling final version
 node $bootstrapDir/src/cli.js -p taskcluster src:lib
-rm -rf $bootstrapDir
+#rm -rf $bootstrapDir
+echo Finished bootstrapping babel-compile
+echo
+echo
+echo

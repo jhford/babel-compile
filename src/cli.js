@@ -6,6 +6,8 @@ let path = require('path');
 let _ = require('lodash');
 let fs = require('mz/fs');
 
+//require('source-map-support').install();
+
 
 /**
  * The goal is to add the absolute minimum amount of options that are
@@ -47,4 +49,11 @@ console.log('Running babel compilation with config:\n' +
 // so that babel-node implicitly uses the same config
 // as babel-compile
 
-compile.run(mapping, config);
+compile.run(mapping, config).then(() => {
+  console.log('Success!');
+  process.exit(0);
+}, err => {
+  console.error('Error!');
+  console.error(err.stack || err);
+  process.exit(1);
+});

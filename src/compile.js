@@ -6,7 +6,8 @@ let assert = require('assert');
 let _ = require('lodash');
 let walk = require('fs-walk');
 let mkdirP = require('mkdirp');
-let rmrf = require('rimraf').sync;
+let rmrf = require('rimraf');
+let debug = require('debug')('babel-compile:compile');
 
 /**
  * This is a library for compiling es6 to node-0.12+ compatible JS.  We wrote
@@ -37,11 +38,19 @@ async function run(dirMap, babelopts) {
   // right.
   await Promise.all(dirMap.map(async pair => {
     if (await fs.exists(pair.dst)) {
-      await fs.unlink(pair.dst);
+      await new Promise((res, rej) => {
+        rmrf(pair.dst, err => {
+          if (err) {
+            return rej(err);
+          }
+          return res();
+        });
+      });
     }
   }));
 
-  let files = classifyDirMap(dirMap);
+  let files = await classifyDirMap(dirMap);
+  debug('classified files as:\n%s', JSON.stringify(files, null, 2));
 
   // Remember that we should create the directories before we try to write
   // files out to them.  This allows us to skip any checks for directory
@@ -84,9 +93,9 @@ async function classifyDirMap(dirMap) {
   return res;
 }
 
-async function classifyDirectory(inDir, outDir) {
-  assert(typeof inDir === 'string');
-  assert(typeof outDir === 'string');
+async function classifyDirectory(src, dst) {
+  assert(typeof src === 'string');
+  assert(typeof dst === 'string');
 
   let res = {
     dir: [],
@@ -94,23 +103,25 @@ async function classifyDirectory(inDir, outDir) {
     com: [],
   };
 
-  let dirContent = await fs.readdir(inDir);
+  let dirContent = await fs.readdir(src);
 
   await Promise.all(dirContent.map(async relSrc => {
     let pair = {
-      src: path.join(inDir, relSrc),
-      dst: path.join(outDir, relSrc),
+      src: path.join(src, relSrc),
+      dst: path.join(dst, relSrc),
     };
 
-    let x;
-    if ((await fs.lstat(inDirMember)).isDirectory()) {
-      x = res.dir;
-    } else if (supportedFiles.indexOf(path.parse(fullInPath).ext) !== -1) {
-      x = res.com;
+    if ((await fs.lstat(pair.src)).isDirectory()) {
+      let result = await classifyDirectory(pair.src, pair.dst);
+      Array.prototype.push.apply(res.dir, result.dir);
+      Array.prototype.push.apply(res.com, result.com);
+      Array.prototype.push.apply(res.cop, result.cop);
+      res.dir.push(pair.dst);
+    } else if (supportedFiles.indexOf(path.parse(pair.src).ext) !== -1) {
+      res.com.push(pair);
     } else {
-      x = res.cop;
+      res.cop.push(pair);
     }
-    x.push(pair);
   }));
 
   return res;
@@ -123,9 +134,17 @@ async function createDirectories(directories) {
   assert(directories);
   assert(Array.isArray(directories));
   await Promise.all(directories.map(async dir => {
+    debug('creating %s', dir);
     assert(typeof dir === 'string');
-    console.log(`Creating directory +${dir}`);
-    await mkdirP(dir);
+    console.log(`Creating directory ${dir}`);
+    await new Promise((res, rej) => {
+      mkdirP(dir, err => {
+        if (err) {
+          return rej(err);
+        }
+        return res();
+      });
+    });
   }));
 }
 
@@ -137,6 +156,7 @@ async function createDirectories(directories) {
 async function copy(src, dst) {
   assert(typeof src === 'string');
   assert(typeof dst === 'string');
+  debug('copying %s -> %s', src, dst);
 
   try {
     await fs.link(src, dst);
@@ -174,6 +194,7 @@ let BABELtransformFile = async function(filename, opts = {}) {
 async function compile(src, dst, opts) {
   // For the time being, let's just do the copy
   assert(await fs.exists(src));  
+  debug('compiling %s -> %s', src, dst);
 
   // TODO: Verify the order of options and the obj literal.  obj
   // literal must win!
