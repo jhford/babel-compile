@@ -37,10 +37,11 @@ function rmrf(target) {
  * options relating to source map generation are overwritten by this library
  * before being passed into babel-core.
  */
-async function run(dirMap, babelopts, bcopts = {}) {
+async function run(dirMap, babelopts = {}, bcopts = {}) {
   assert(dirMap, 'must provide dirMap');
   assert(Array.isArray(dirMap), 'dirMap must be list');
   assert(typeof babelopts === 'object', 'babelopts must be object');
+  assert(typeof bcopts === 'object', 'babelopts must be object');
 
   // Set default options
   let _bcopts = _.defaults({}, bcopts, {
