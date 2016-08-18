@@ -4,7 +4,6 @@ let fs = require('mz/fs');
 let path = require('path');
 let assert = require('assert');
 let _ = require('lodash');
-let walk = require('fs-walk');
 let mkdirP = require('mkdirp');
 let rmrf = require('rimraf');
 let debug = require('debug')('babel-compile:compile');

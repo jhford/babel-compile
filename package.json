@@ -1,14 +1,12 @@
 {
   "name": "babel-compile",
-  "version": "2.0.0",
-  "description": "A script to compile .js and .jsx to es6 with Babel using babel-core, that actually works!",
+  "version": "3.0.0",
+  "description": "Compile JS -> JS using Babel",
   "main": "lib/compile.js",
   "scripts": {
     "compile": "./compile.sh",
-    "test": "node ./lib/cli.js -p taskcluster sample-in:sample-out && rm -rf sample-out",
-    "pretest": "npm run compile",
-    "prepublish": "npm run compile",
-    "preinstall": "npm run compile"
+    "test": "./test.sh",
+    "prepublish": "npm run compile"
   },
   "bin": {
     "babel-compile": "./lib/cli.js"
@@ -29,19 +27,19 @@
     "babel-runtime": "^6.11.6",
     "commander": "^2.8.1",
     "debug": "^2.2.0",
-    "fs-walk": "0.0.1",
     "lodash": "^4.11.1",
     "mkdirp": "^0.5.1",
     "mz": "^2.4.0",
     "rimraf": "^2.4.3",
-    "sinon": "^1.17.5",
     "source-map-support": "^0.4.2"
+  },
+  "engines": {
+    "node": ">=4 <=6"
   },
   "devDependencies": {
     "assume": "^1.4.1",
     "babel-cli": "^6.11.4",
     "babel-preset-taskcluster": "^3.0.0",
-    "mktemp": "^0.4.0",
     "mocha": "^3.0.2",
     "sinon": "^1.17.5"
   }

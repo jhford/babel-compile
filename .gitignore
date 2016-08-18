@@ -1,4 +1,5 @@
 sample-out/
+test-out/
 node_modules/
 lib/
 mocha-test/

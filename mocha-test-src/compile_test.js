@@ -1,5 +1,4 @@
 let sinon = require('sinon');
-let mktemp = require('mktemp');
 let fs = require('fs');
 let path = require('path');
 let rmrf = require('rimraf').sync;
@@ -226,14 +225,12 @@ describe('compile.js', () => {
   });
 
   describe('.compile', () => {
-    it('should compile without options', async () => {
-      await subject.__compile('test/hello.js', 'test-out/hello.out.js');
-      let output = await exec(`${process.argv[0]} test-out/hello.out.js`);
-      assume(output).deeply.equals([ 'hi\n', '' ]);
-    });
     
     it('should generate valid source maps', async () => {
-      await subject.__compile('test/throws.js', 'test-out/throws.out.js');
+      await subject.__compile('test/throws.js', 'test-out/throws.out.js', {
+        babelrc: false,
+        presets: ['taskcluster'],
+      });
       let output = await exec(`${process.argv[0]} test-out/throws.out.js`);
       assume(output[1]).equals('');
       assume(output[0].trim()).matches(/\/test\/throws.js:6:11\)$/);
@@ -245,6 +242,8 @@ describe('compile.js', () => {
         sourceFileName: 'ooogie-boogie',
         sourceMapTarget: 'Australia',
         sourceRoot: 'Norway',
+        babelrc: false,
+        presets: ['taskcluster'],
       });
       let output = await exec(`${process.argv[0]} test-out/throws.out.js`);
       assume(output[1]).equals('');
