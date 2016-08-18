@@ -299,19 +299,19 @@ let BABELtransformFile = async function(filename, opts = {}) {
  * source maps are overwritten in this function in order to ensure that source
  * maps are generated correctly.
  */
-async function compile(src, dst, opts) {
+async function compile(src, dst, opts = {}) {
   // For the time being, let's just do the copy
   assert(await fs.exists(src));  
   debug('compiling %s -> %s', src, dst);
 
   // TODO: Verify the order of options and the obj literal.  obj
   // literal must win!
-  let _opts = _.defaults({}, opts || {}, {
+  let _opts = _.defaults({}, {
     sourceMaps: true,
-    sourceFileName: path.basename(dst),
+    sourceFileName: path.basename(src),
     sourceMapTarget: path.basename(dst),
     sourceRoot: path.relative(path.dirname(dst), path.dirname(src)),
-  });
+  }, opts);
 
 
   console.log(`Compiling file ${src} --> ${dst}`);
@@ -320,7 +320,7 @@ async function compile(src, dst, opts) {
   console.log(`Finished compiling file ${src} --> ${dst} ${Date.now() - start}ms`);
 
   await Promise.all([
-    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}.${sourceMapSuffix}`),
+    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}${sourceMapSuffix}`),
     fs.writeFile(dst + '.map', JSON.stringify(out.map, null, 2) + '\n'),
   ]);
 }

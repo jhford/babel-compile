@@ -23,7 +23,6 @@ const sampleMap = [{src: 'sample-in', dst: 'sample-out'}];
 const shadowMap = [{src: 'test/source-map-overshadow', dst: 'test/out'}];
 
 describe('compile.js', () => {
-  let cleanup = [];
   let sandbox;
 
   before(() => {
@@ -31,29 +30,32 @@ describe('compile.js', () => {
   });
 
   beforeEach(() => {
-    cleanup.forEach(x => rmrf(x));
-    cleanup = [];
+    rmrf('test-out');
+    fs.mkdirSync('test-out');
   });
 
   afterEach(() => {
     sandbox.restore();
-    cleanup.forEach(x => rmrf(x));
-    cleanup = [];
+  });
+
+  after(() => {
+    rmrf('test-out');
+    rmrf('sample-out');
   });
 
   describe('.run', () => {
     it('should work with good data and no options', async () => {
-      cleanup.push('sample-out');
+      rmrf('sample-out');
       await subject.run(sampleMap); 
     });
     
     it('should work with good data and with empty options', async () => {
-      cleanup.push('sample-out');
+      rmrf('sample-out');
       await subject.run(sampleMap, {}); 
     });
     
     it('should work with good data and with used options', async () => {
-      cleanup.push('sample-out');
+      rmrf('sample-out');
       await subject.run(sampleMap, {
         highlightCode: false
       }); 
@@ -180,40 +182,37 @@ describe('compile.js', () => {
   });
 
   describe('.copy', () => {
+    let src = 'test/hello.js';
+    let dst = 'test-out/hello.out.js';
+
     it('should hardlink when possible', async () => {
-      rmrf('test/helloagain.js');
-      await subject.__copy('test/hello.js', 'test/helloagain.js');
-      assume(fs.lstatSync('test/hello.js').ino).equals(fs.lstatSync('test/helloagain.js').ino);
+      await subject.__copy(src, dst);
+      assume(fs.lstatSync(src).ino).equals(fs.lstatSync(dst).ino);
       // lol windows
-      assume(fs.lstatSync('test/hello.js').ino).does.not.equals(0);
+      assume(fs.lstatSync(dst).ino).does.not.equals(0);
     });
 
     it('should symlink when hardlinking fails', async () => {
       let linkstub = sandbox.stub(mzfs, "link", (x, y) => Promise.reject(`refusing to hardlink ${x} -> ${y}`));
-
-      rmrf('test/helloagain2.js');
-      await subject.__copy('test/hello.js', 'test/helloagain2.js');
-      cleanup.push('test/helloagain2.js');
-      assert(fs.lstatSync('test/helloagain2.js').isSymbolicLink());
+      await subject.__copy(src, dst);
+      assert(fs.lstatSync(dst).isSymbolicLink());
     });
 
     it('should copy when hardlinking and symlinking fail', async () => {
       let linkstub = sandbox.stub(mzfs, "link", (x, y) => Promise.reject(`refusing to hardlink ${x} -> ${y}`));
       let symstub = sandbox.stub(mzfs, "symlink", (x, y) => Promise.reject(`refusing to symlink ${x} -> ${y}`));
 
-      rmrf('test/helloagain3.js');
-      await subject.__copy('test/hello.js', 'test/helloagain3.js');
-      cleanup.push('test/helloagain3.js');
-      assert(!fs.lstatSync('test/helloagain3.js').isSymbolicLink());
-      assert(fs.lstatSync('test/helloagain3.js').isFile());
-      assume(fs.readFileSync('test/hello.js').toString()).equals(fs.readFileSync('test/helloagain3.js').toString());
+      await subject.__copy(src, dst);
+      assert(!fs.lstatSync(dst).isSymbolicLink());
+      assert(fs.lstatSync(dst).isFile());
+      assume(fs.readFileSync(src).toString()).equals(fs.readFileSync(dst).toString());
     });
 
     it.skip('should throw error on read problem', async () => {
       let linkstub = sandbox.stub(mzfs, "link", (x, y) => Promise.reject(`refusing to hardlink ${x} -> ${y}`));
       let symstub = sandbox.stub(mzfs, "symlink", (x, y) => Promise.reject(`refusing to symlink ${x} -> ${y}`));
       try {
-        await subject.__copy('test/hello.js', 'test/helloagain.js');
+        await subject.__copy(src, dst);
       } catch (err) { }
     });
 
@@ -221,22 +220,35 @@ describe('compile.js', () => {
       let linkstub = sandbox.stub(mzfs, "link", (x, y) => Promise.reject(`refusing to hardlink ${x} -> ${y}`));
       let symstub = sandbox.stub(mzfs, "symlink", (x, y) => Promise.reject(`refusing to symlink ${x} -> ${y}`));
       try {
-        await subject.__copy('test/hello.js', 'test/helloagain.js');
+        await subject.__copy(src, dst);
       } catch (err) { }
     });
   });
 
   describe('.compile', () => {
     it('should compile without options', async () => {
-      await subject.__compile('test/hello.js', 'test/hellotest.js');
-      let output = await exec(`${process.argv[0]} test/hellotest.js`);
+      await subject.__compile('test/hello.js', 'test-out/hello.out.js');
+      let output = await exec(`${process.argv[0]} test-out/hello.out.js`);
       assume(output).deeply.equals([ 'hi\n', '' ]);
     });
     
     it('should generate valid source maps', async () => {
-      await subject.__compile('test/throws.js', 'test/throws.out.js');
-      let output = await exec(`${process.argv[0]} test/throws.out.js`);
-      assume(output).deeply.equals([ '(throws.out.js:5:11)\n', '' ]);
+      await subject.__compile('test/throws.js', 'test-out/throws.out.js');
+      let output = await exec(`${process.argv[0]} test-out/throws.out.js`);
+      assume(output[1]).equals('');
+      assume(output[0].trim()).matches(/\/test\/throws.js:6:11\)$/);
+    });
+    
+    it('should override the options it needs internally', async () => {
+      await subject.__compile('test/throws.js', 'test-out/throws.out.js', {
+        sourceMaps: false,
+        sourceFileName: 'ooogie-boogie',
+        sourceMapTarget: 'Australia',
+        sourceRoot: 'Norway',
+      });
+      let output = await exec(`${process.argv[0]} test-out/throws.out.js`);
+      assume(output[1]).equals('');
+      assume(output[0].trim()).matches(/\/test\/throws.js:6:11\)$/);
     });
   });
 });
