@@ -27,7 +27,10 @@ const sourceMapSuffix = '.map';
  * options relating to source map generation are overwritten by this library
  * before being passed into babel-core.
  */
-async function run(dirMap, babelopts) {
+async function run(dirMap, babelopts = {}) {
+  assert(dirMap, 'must provide dirMap');
+  assert(Array.isArray(dirMap), 'dirMap must be list');
+  assert(typeof babelopts === 'object', 'babelopts must be object');
   // Get rid of anything that's there.  I'd rather waste time recreating things
   // than deal with weird files being there and affecting the output.  There's
   // room for improvement by leaving things in place, finding the operations
@@ -118,7 +121,6 @@ async function classifyDirMap(dirMap) {
     Array.prototype.push.apply(res.dir, result.dir);
     Array.prototype.push.apply(res.com, result.com);
     Array.prototype.push.apply(res.cop, result.cop);
-    res.dir.push(pair.dst);
   }));
 
   return res;
@@ -143,6 +145,19 @@ async function classifyDirectory(src, dst) {
     com: [],
   };
 
+  // We want to be able to compile a single file as well as directories
+  if ((await fs.lstat(src)).isDirectory()) {
+    res.dir.push(dst);
+  } else {
+    let pair = {src: src, dst: dst};
+    if (isJs(src)) {
+      res.com.push(pair);
+    } else {
+      res.cop.push(pair);
+    }
+    return res;
+  }
+
   let dirContent = await fs.readdir(src);
 
   await Promise.all(dirContent.map(async relSrc => {
@@ -156,8 +171,7 @@ async function classifyDirectory(src, dst) {
       Array.prototype.push.apply(res.dir, result.dir);
       Array.prototype.push.apply(res.com, result.com);
       Array.prototype.push.apply(res.cop, result.cop);
-      res.dir.push(pair.dst);
-    } else if (supportedFiles.indexOf(path.parse(pair.src).ext) !== -1) {
+    } else if (isJs(pair.src)) {
       res.com.push(pair);
     } else {
       res.cop.push(pair);
@@ -165,6 +179,10 @@ async function classifyDirectory(src, dst) {
   }));
 
   return res;
+}
+
+function isJs (filename) {
+  return supportedFiles.indexOf(path.parse(filename).ext) !== -1
 }
 
 /**
@@ -307,4 +325,14 @@ async function compile(src, dst, opts) {
   ]);
 }
 
-module.exports = {run, copy, compile, createDirectories};
+module.exports = {
+  run,
+  copy,
+  compile,
+  createDirectories,
+  __classifyDirMap: classifyDirMap,
+  __classifyDirectory: classifyDirectory,
+  __createDirectories: createDirectories,
+  __copy: copy,
+  __compile: compile,
+};

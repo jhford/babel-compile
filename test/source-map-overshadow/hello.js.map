@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "sources": [
+    "hello.js"
+  ],
+  "names": [],
+  "mappings": ";;AAAA,SAAS,EAAT,GAAc;AACZ,UAAQ,GAAR,CAAY,IAAZ;AACD;AACD",
+  "file": "hello.js",
+  "sourceRoot": "../source-map-overshadow",
+  "sourcesContent": [
+    "function hi() {\n  console.log('hi');\n}\nhi()\n"
+  ]
+}
