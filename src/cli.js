@@ -6,8 +6,11 @@ let path = require('path');
 let _ = require('lodash');
 let fs = require('mz/fs');
 
-//require('source-map-support').install();
+require('source-map-support').install();
 
+process.on('unhandledRejection', err => {
+  process.nextTick(() => {throw err});
+});
 
 /**
  * The goal is to add the absolute minimum amount of options that are
@@ -30,6 +33,7 @@ function addConfig(preset) {
 
 program
   .version(pkgjson.version)
+  .option('-C, --no-clean', 'Add bbq sauce')
   .option('-p, --preset [modulename]',
       'Specifies which babel-preset to use', addConfig, [])
   .parse(process.argv);
@@ -49,7 +53,9 @@ console.log('Running babel compilation with config:\n' +
 // so that babel-node implicitly uses the same config
 // as babel-compile
 
-compile.run(mapping, config).then(() => {
+compile.run(mapping, config, {
+  forceClean: program.clean,
+}).then(() => {
   console.log('Success!');
   process.exit(0);
 }, err => {
@@ -64,6 +70,13 @@ compile.run(mapping, config).then(() => {
       'a source map with a conflicting name',
     ].join('\n'));
     console.error('Here are the files which confict:\n  * ' + err.dupes.join('\n  * '));
+    process.exit(1);
+  } else if (err.code === 'InputOutputOverlap') {
+    console.error([
+      'Found input and output files which overlap.  All of your output ',
+      'and input should be completely seperate',
+    ].join('\n'));
+    console.error('Here are the files which overlap:\n  * ' + err.overlap.join('\n  * '));
     process.exit(1);
   }
   console.error('Error!');

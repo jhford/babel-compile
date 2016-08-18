@@ -17,7 +17,7 @@ let debug = require('debug')('babel-compile:compile');
 const supportedFiles = ['.js', '.jsx'];
 const sourceMapSuffix = '.map';
 
-async function rmrf(target) {
+function rmrf(target) {
   return new Promise((res, rej) => {
     _rmrf(target, err => {
       if (err) {
@@ -37,39 +37,52 @@ async function rmrf(target) {
  * options relating to source map generation are overwritten by this library
  * before being passed into babel-core.
  */
-async function run(dirMap, babelopts = {}) {
+async function run(dirMap, babelopts, bcopts = {}) {
   assert(dirMap, 'must provide dirMap');
   assert(Array.isArray(dirMap), 'dirMap must be list');
   assert(typeof babelopts === 'object', 'babelopts must be object');
-  // Get rid of anything that's there.  I'd rather waste time recreating things
-  // than deal with weird files being there and affecting the output.  There's
-  // room for improvement by leaving things in place, finding the operations
-  // that need to be done and only overwriting the files which have changed,
-  // but it'd be critical to remember to delete the files which are no longer
-  // in the source directory.  Basically, babel-compile owns getting things
-  // right.
-  await Promise.all(dirMap.map(async pair => {
-    if (await fs.exists(pair.dst)) {
-      await rmrf(pair.dst);
-    }
-  }));
+
+  // Set default options
+  let _bcopts = _.defaults({}, bcopts, {
+    forceClean: true,
+  });
+
+  debug('babel-opts %j', babelopts);
+  debug('babel-compile-opts %j', bcopts);
+
+  if (_bcopts.forceClean) {
+    console.log('Forcing cleanup');
+    await Promise.all(dirMap.map(async pair => {
+      if (await fs.exists(pair.dst)) {
+        await rmrf(pair.dst);
+      }
+    }));
+  }
 
   let files = await classifyDirMap(dirMap);
   debug('classified files as:\n%s', JSON.stringify(files, null, 2));
-
-  // Remember that we should create the directories before we try to write
-  // files out to them.  This allows us to skip any checks for directory
-  // existance in the copy and compile operations
-  await createDirectories(files.dir);
-
-  debug('directory creation finished');
-  // TODO: Check for dupes in the list of copy and compile files
 
   let allFiles = _.flatten([
     files.com.map(x => x.dst),
     files.cop.map(x => x.dst),
     files.com.map(x => x.dst + sourceMapSuffix),
   ]);
+  allFiles.sort();
+
+  let allSourceFiles = _.flatten([
+    files.com.map(x => x.src),
+    files.cop.map(x => x.src),
+  ]);
+  allSourceFiles.sort();
+
+  let overlapping = _.intersection(allFiles, allSourceFiles);
+  if (overlapping.length > 0) {
+    let err = new Error('There are overlapping input and output files');
+    err.code = 'InputOutputOverlap';
+    err.overlap = overlapping;
+    debug('Found overlapping files %j', overlapping);
+    throw err;
+  }
 
   let uniqueFiles = _.uniq(allFiles);
   if (allFiles.length !== _.uniq(allFiles).length) {
@@ -88,12 +101,69 @@ async function run(dirMap, babelopts = {}) {
     throw err;
   }
 
+  // When we're not doing a force clean, we want to make sure that no files exist
+  // in the destination directory that we wish to delete
+  if (!_bcopts.forceClean) {
+    debug('Not forcing clean, finding files that should not be in destination');
+    let dstcontents = await listDirectory(dirMap.map(x => x.dst));
+    let dirExtra = _.difference(dstcontents.dirs, files.dir);
+    let fileExtra = _.difference(dstcontents.files, allFiles);
+    debug('removing dirs: %j, files: %j', dirExtra, fileExtra);
+    await Promise.all(fileExtra.map(x => fs.unlink(x)));
+    await Promise.all(dirExtra.map(x => rmrf(x)));
+  }
+
+  // Remember that we should create the directories before we try to write
+  // files out to them.  This allows us to skip any checks for directory
+  // existance in the copy and compile operations
+  await createDirectories(files.dir);
+  debug('directory creation finished');
+
   // Execute our copy and compile operations!
   await Promise.all([
     Promise.all(files.com.map(x => compile(x.src, x.dst, babelopts))),
     Promise.all(files.cop.map(x => copy(x.src, x.dst))),
   ]);
   debug('copy and compile operations complete');
+}
+
+function dirMapDstDirs (dirMap) {
+
+}
+
+/**
+ * List all files in a directory.  Returns an object with properties `dirs` and
+ * `files` 
+ */
+async function listDirectory(roots) {
+  assert(roots);
+  assert(Array.isArray(roots));
+  let res = {
+    files: [],
+    dirs: [],
+  };
+
+  async function x(y) {
+    if ((await fs.lstat(y)).isDirectory()) {
+      res.dirs.push(y);
+      for (let z of (await fs.readdir(y))) {
+        await x(path.join(y, z));
+      }
+    } else {
+      res.files.push(y);
+    }
+  }
+
+  for (let root of roots) {
+    try {
+      await fs.lstat(root);
+    } catch (err) {
+      continue; 
+    }
+    await x(root);
+  }
+
+  return res;
 }
 
 /**
@@ -194,9 +264,16 @@ function isJs (filename) {
 async function createDirectories(directories) {
   assert(directories);
   assert(Array.isArray(directories));
+  
   await Promise.all(directories.map(async dir => {
     debug('creating %s', dir);
     assert(typeof dir === 'string');
+    try {
+      let dirstat = await fs.lstat(dir);
+      if (dirstat && dirstat.isDirectory()) {
+        return;
+      }
+    } catch (err) { }
     console.log(`Creating directory ${dir}`);
     await new Promise((res, rej) => {
       mkdirP(dir, err => {
@@ -207,67 +284,6 @@ async function createDirectories(directories) {
       });
     });
   }));
-}
-
-/**
- * Decide whether a file should be re-copied
- */
-async function cleanupDestForCopy(src, dst) {
-  assert(typeof src === 'string');
-  assert(typeof dst === 'string');
-
-  let dstlstat;
-  let dstExists = false;
-
-  // If the destination file does not already exist, we should copy the file.  
-  try {
-    dstlstat = await fs.lstat(dst);
-    dstExists = true;
-  } catch (err) { }
-
-  // If the destination already exists, we should either delete it if it's not
-  // valid or we should return early if it is
-  if (dstExists) {
-    // We should delete directories which are at the destination
-    if (dstlstat.isDirectory()) {
-      await rmrf(dst);
-    }
-
-    // Symbolic links should be exactly as this program would create.  I could
-    // treat the linked to file as if it were any other file, but that would
-    // unfortunately mean that if someone had a weird symlink that was not as
-    // I'd create, it would not be recreated.  This could have issues with
-    // module publishing
-    if (dstlstat.isSymbolicLink()) {
-      // If the destination 
-      let linkpath = await fs.readlink(dst);
-      if (linkpath === path.relative(path.dirname(dst), src)) {
-        return;
-      };
-      // We need to remove this file no matter what
-      await fs.unlink(dst);
-    }
-
-    // We know for sure that we're working on a file.  Let's check if the files
-    // are referring to the same inode, which would mean that dst and src are
-    // hardlinked to the same file
-    let srclstat = await fs.lstat(src);
-    if (srclstat.ino === dstlstat.ino && srclstat.ino !== 0) {
-      return;
-    }
-
-    // It's a file that is not a hard link.  We want to compare modification time.
-    // If the destination is older than the source, we want to overwrite it.
-    if (dstlstat.mtime > srclstat.mtime) {
-      return;
-    }
-
-  }
-
-
-
-
-  return true;
 }
 
 /**
@@ -338,8 +354,7 @@ async function copy(src, dst) {
 
     // Since we already have the inodes of both src and dst, we can short circuit
     // based on that knowledge
-    let srcstat = await fs.stat(src);
-    if (srcstat.ino === dstlstat.ino && srclstat.ino !== 0) {
+    if (srcstat.ino === dstlstat.ino && srcstat.ino !== 0) {
       return;
     }
 
@@ -348,13 +363,14 @@ async function copy(src, dst) {
     // reliably equal is if they're hardlinks, which we've already checked for.
     // Since we know they aren't hardlinks, we can assert that if the timestamps
     // are close enough we should redo the copy
-    if (dstlstat.mtime > srclstat.mtime) {
+    if (dstlstat.mtime > srcstat.mtime) {
       return;
     } else {
       await fs.unlink(dst);
     }
 
   }
+
   try {
     debug('hardlinking %s -> %s', src, dst);
     await fs.link(src, dst);
@@ -433,6 +449,47 @@ async function compile(src, dst, opts = {}) {
   assert(await fs.exists(src));  
   debug('compiling %s -> %s', src, dst);
 
+  let srcstat = await fs.stat(src);
+  let dstlstat;
+
+  assert(srcstat.isFile());
+
+  try {
+    dstlstat = await fs.lstat(dst);
+  } catch (err) {
+  }
+
+  // Unlike copying, we have a much shorter set of conditions for when we're
+  // going to not preform the operations
+  if (dstlstat) {
+    // Basically, delete anything which is not a file since we will only even
+    // consider leaving a file around
+    if (dstlstat.isDirectory()) {
+      await rmrf(dst);
+    } else if (!dstlstat.isFile()) {
+      await fs.unlink(dst);
+    }
+
+    // A hardlink from src to dst is by definition invalid for a compiled file
+    // since we know that compiled files are being compiled to change them.
+    // Whether the compiler makes a change is not important, but it being a
+    // hard link to src invalidates the transformation initiated by this tool.
+    if (srcstat.ino === dstlstat.ino && srcstat.ino !== 0) {
+      await fs.unlink(dst);
+    }
+
+    // If the destination time is older than the source, we can assume the source
+    // has been updated.  The only case I can think of the timestamps being
+    // reliably equal is if they're hardlinks, which we've already checked for.
+    // Since we know they aren't hardlinks, we can assert that if the timestamps
+    // are close enough we should redo the copy
+    if (dstlstat.mtime > srcstat.mtime) {
+      return;
+    } else {
+      await fs.unlink(dst);
+    }  
+  }
+
   // TODO: Verify the order of options and the obj literal.  obj
   // literal must win!
   let _opts = _.defaults({}, {
@@ -448,9 +505,14 @@ async function compile(src, dst, opts = {}) {
   let out = await BABELtransformFile(src, _opts);
   console.log(`Finished compiling file ${src} --> ${dst} ${Date.now() - start}ms`);
 
+  // We want to match the permissions of the input
+  let fopts = {
+    mode: srcstat.mode,
+  }
+
   await Promise.all([
-    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}${sourceMapSuffix}`),
-    fs.writeFile(dst + '.map', JSON.stringify(out.map, null, 2) + '\n'),
+    fs.writeFile(dst, out.code + `\n//# sourceMappingURL=${path.basename(dst)}${sourceMapSuffix}`, fopts),
+    fs.writeFile(dst + '.map', JSON.stringify(out.map, null, 2) + '\n', fopts),
   ]);
 }
 
@@ -464,4 +526,5 @@ module.exports = {
   __createDirectories: createDirectories,
   __copy: copy,
   __compile: compile,
+  __listDirectory: listDirectory,
 };

@@ -18,6 +18,8 @@ for jsFile in $(find src -name "*.js") ; do
   outFile="$bootstrapDir/$jsFile"
   mkdir -p $outDir
   echo bootstrap compiling $jsFile '=>' $outFile
+  # we don't want inline source maps by default but it's useful in this
+  # bootstrapping version
   babel --presets taskcluster $jsFile -o $outFile
 done
 
