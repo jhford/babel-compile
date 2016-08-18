@@ -5,7 +5,7 @@ let path = require('path');
 let assert = require('assert');
 let _ = require('lodash');
 let mkdirP = require('mkdirp');
-let rmrf = require('rimraf');
+let _rmrf = require('rimraf');
 let debug = require('debug')('babel-compile:compile');
 
 /**
@@ -16,6 +16,17 @@ let debug = require('debug')('babel-compile:compile');
 // List of file extensions which we'll try to use Babel to compile
 const supportedFiles = ['.js', '.jsx'];
 const sourceMapSuffix = '.map';
+
+async function rmrf(target) {
+  return new Promise((res, rej) => {
+    _rmrf(target, err => {
+      if (err) {
+        return rej(err);
+      }
+      return res(target);
+    });
+  });
+};
 
 /**
  * Run everything which we need in order to do the compilation.  `dirMap` is a
@@ -39,14 +50,7 @@ async function run(dirMap, babelopts = {}) {
   // right.
   await Promise.all(dirMap.map(async pair => {
     if (await fs.exists(pair.dst)) {
-      await new Promise((res, rej) => {
-        rmrf(pair.dst, err => {
-          if (err) {
-            return rej(err);
-          }
-          return res();
-        });
-      });
+      await rmrf(pair.dst);
     }
   }));
 
@@ -67,7 +71,7 @@ async function run(dirMap, babelopts = {}) {
     files.com.map(x => x.dst + sourceMapSuffix),
   ]);
 
-  let allFilesUniq = _.uniq(allFiles);
+  let uniqueFiles = _.uniq(allFiles);
   if (allFiles.length !== _.uniq(allFiles).length) {
     // We need to sort so we can do the comparisons
     allFiles.sort();
@@ -206,6 +210,67 @@ async function createDirectories(directories) {
 }
 
 /**
+ * Decide whether a file should be re-copied
+ */
+async function cleanupDestForCopy(src, dst) {
+  assert(typeof src === 'string');
+  assert(typeof dst === 'string');
+
+  let dstlstat;
+  let dstExists = false;
+
+  // If the destination file does not already exist, we should copy the file.  
+  try {
+    dstlstat = await fs.lstat(dst);
+    dstExists = true;
+  } catch (err) { }
+
+  // If the destination already exists, we should either delete it if it's not
+  // valid or we should return early if it is
+  if (dstExists) {
+    // We should delete directories which are at the destination
+    if (dstlstat.isDirectory()) {
+      await rmrf(dst);
+    }
+
+    // Symbolic links should be exactly as this program would create.  I could
+    // treat the linked to file as if it were any other file, but that would
+    // unfortunately mean that if someone had a weird symlink that was not as
+    // I'd create, it would not be recreated.  This could have issues with
+    // module publishing
+    if (dstlstat.isSymbolicLink()) {
+      // If the destination 
+      let linkpath = await fs.readlink(dst);
+      if (linkpath === path.relative(path.dirname(dst), src)) {
+        return;
+      };
+      // We need to remove this file no matter what
+      await fs.unlink(dst);
+    }
+
+    // We know for sure that we're working on a file.  Let's check if the files
+    // are referring to the same inode, which would mean that dst and src are
+    // hardlinked to the same file
+    let srclstat = await fs.lstat(src);
+    if (srclstat.ino === dstlstat.ino && srclstat.ino !== 0) {
+      return;
+    }
+
+    // It's a file that is not a hard link.  We want to compare modification time.
+    // If the destination is older than the source, we want to overwrite it.
+    if (dstlstat.mtime > srclstat.mtime) {
+      return;
+    }
+
+  }
+
+
+
+
+  return true;
+}
+
+/**
  * Copy or link a file.  This function first tries to create a hardlink.  If
  * hardlinking fails for any reason, we try to create a symlink.  If both
  * symbolic and hard linking fail, we try to copy the file.
@@ -227,6 +292,69 @@ async function copy(src, dst) {
   assert(typeof dst === 'string');
   debug('copying or linking %s -> %s', src, dst);
 
+  // We don't care whether the source file is a symlink or not, just
+  // as long as it points to a file
+  let srcstat = await fs.stat(src);
+  assert(srcstat.isFile());
+
+  let dstlstat;
+
+  // If the destination file does not already exist, we should copy the file.  
+  try {
+    // However, since we *might* encounter symlinks that we've ourselves created
+    // we want to operate on *that* symlink, or if not a symlink, we can safely
+    // operate on the file
+    dstlstat = await fs.lstat(dst);
+  } catch (err) { }
+
+  // If the destination already exists, we should either delete it if it's not
+  // valid or we should return early if it is
+  if (dstlstat) {
+    // We should delete directories which are at the destination
+    if (dstlstat.isDirectory()) {
+      await rmrf(dst);
+    }
+    
+    // Symbolic links should be exactly as this program would create.  I could
+    // treat the linked to file as if it were any other file, but that would
+    // unfortunately mean that if someone had a weird symlink that was not as
+    // I'd create, it would not be recreated.  This could have issues with
+    // module publishing
+    if (dstlstat.isSymbolicLink()) {
+      // If the destination 
+      let linkpath = await fs.readlink(dst);
+      if (linkpath === path.relative(path.dirname(dst), src)) {
+        return;
+      };
+      // We need to remove this file no matter what
+      await fs.unlink(dst);
+    }
+
+    // If someone's created a non-file, non-symlink, non-directory in the
+    // destination we should get rid of it so we can safely overwrite it
+    if (!dstlstat.isFile()) {
+      await fs.unlink(dst);
+    }
+
+    // Since we already have the inodes of both src and dst, we can short circuit
+    // based on that knowledge
+    let srcstat = await fs.stat(src);
+    if (srcstat.ino === dstlstat.ino && srclstat.ino !== 0) {
+      return;
+    }
+
+    // If the destination time is older than the source, we can assume the source
+    // has been updated.  The only case I can think of the timestamps being
+    // reliably equal is if they're hardlinks, which we've already checked for.
+    // Since we know they aren't hardlinks, we can assert that if the timestamps
+    // are close enough we should redo the copy
+    if (dstlstat.mtime > srclstat.mtime) {
+      return;
+    } else {
+      await fs.unlink(dst);
+    }
+
+  }
   try {
     debug('hardlinking %s -> %s', src, dst);
     await fs.link(src, dst);
@@ -241,7 +369,9 @@ async function copy(src, dst) {
       debug('hardlink, symlink failed, copying %s', symerr.stack || symerr);
       return new Promise((res, rej) => {
         let rs = fs.createReadStream(src);
-        let ws = fs.createWriteStream(dst);
+        let ws = fs.createWriteStream(dst, {
+          mode: rs.mode,
+        });
         let readErr;
         let writeErr;
 
